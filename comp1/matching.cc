@@ -160,6 +160,62 @@ bool try_propose(const int proposer,
                         int* cur_poss,
                         const int ucount, 
                         std::set<int>* match_sets) {
+    // Start from the proposer's current position in their preference list
+    int pos = cur_poss[proposer];
+
+
+    for (; pos < ucount; ++pos) {
+        int candidate = sorted_indices[proposer][pos];
+
+        // Skip self
+        if (candidate == proposer) continue;
+
+        // Skip candidates the proposer cannot propose to
+        if (scores[proposer][candidate] == -1) continue;
+
+        // Skip if they are already matched
+        if (matched[proposer][candidate]) continue;
+
+        // We are attempting a proposal — move to next position for future rounds
+        cur_poss[proposer] = pos + 1;
+
+        // If the candidate has remaining capacity, accept the proposal
+        if ((int)match_sets[candidate].size() < (int)iter) {
+            addmatch(proposer, candidate, matched, match_sets);
+            return true; // proposal succeeded
+        }
+
+        // Candidate is at full capacity — find their worst current partner
+        int worst = find_worst_partner(candidate, scores, match_sets);
+        if (worst == -1) {
+            return true; // proposal attempted but no change possible
+        }
+
+        // Check if the candidate prefers this proposer to their worst partner
+        if (scores[candidate][proposer] > scores[candidate][worst]) {
+            // Replace the worst partner with the proposer
+            removematch(candidate, worst, matched, match_sets);
+            addmatch(candidate, proposer, matched, match_sets);
+            return true; // proposal succeeded (replaced a partner)
+        } else {
+            // Candidate rejects proposer
+            return true; // proposal attempted but failed
+        }
+    }
+
+    // No remaining candidates to propose to
+    cur_poss[proposer] = pos;
+    return false;
+
+}
+bool try_propose(const int proposer, 
+                        const size_t iter,
+                        int** sorted_indices, 
+                        int** scores, 
+                        bool** matched, 
+                        int* cur_poss,
+                        const int ucount, 
+                        std::set<int>* match_sets) {
     // TODO
     return false;
 }
@@ -171,6 +227,55 @@ bool try_propose(const int proposer,
 ///     Ensure that `cur_poss` is reset at the start of the function (i.e. 
 ///     `cur_poss[i] = 0` for all `i`). Only propose if the proposer has
 ///     remaining capacity (i.e. `match_sets[proposer].size() < iter`).
+
+void make_matches(const int target, 
+                  int** sorted_indices, 
+                  int** scores,
+                  bool** matched, 
+                  int* cur_poss,
+                  const int ucount,
+                  std::set<int>* match_sets) {
+
+    // Reset current proposal positions for every proposer
+    for (int i = 0; i < ucount; ++i)
+        cur_poss[i] = 0;
+
+    // Run proposal rounds with increasing capacity (iter = 1 .. target)
+    for (int iter = 1; iter <= target; ++iter) {
+        bool changed = true;
+
+        // Keep looping as long as at least one successful proposal happens
+        while (changed) {
+            changed = false;
+
+            // Each proposer gets a chance to propose if they still have capacity
+            for (int proposer = 0; proposer < ucount; ++proposer) {
+
+                // Skip if proposer is already at full capacity for this round
+                if ((int)match_sets[proposer].size() >= iter)
+                    continue;
+
+                // Attempt a proposal
+                int before_matches = totalmatches(ucount, match_sets);
+                long long before_score = totalscore(scores, ucount, match_sets);
+
+                bool attempted = try_propose(
+                    proposer, iter, sorted_indices, scores, matched,
+                    cur_poss, ucount, match_sets);
+
+                // If there was any change (a match added or replaced)
+                if (attempted) {
+                    int after_matches = totalmatches(ucount, match_sets);
+                    long long after_score = totalscore(scores, ucount, match_sets);
+
+                    if (after_matches != before_matches ||
+                        after_score != before_score)
+                        changed = true;
+                }
+            }
+        }
+    }
+}
 
 void make_matches(const int target, 
                   int** sorted_indices, 
@@ -232,3 +337,4 @@ void perform_matching(const int target, int** scores,
         ucount,
         match_sets_vec.data());
 }
+
